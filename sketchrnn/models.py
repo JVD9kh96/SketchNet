@@ -254,6 +254,299 @@ class SketchRNN(object):
                 metric.reset_states()
 
 
+def mlp(x, hidden_units, dropout_rate):
+    for units in hidden_units:
+        x = layers.Dense(units, activation=tf.nn.gelu)(x)
+        x = layers.Dropout(dropout_rate)(x)
+    return x
+        
+
+class TransformerBlock(tf.keras.layers.Layer):
+    def __init__(self, dropout_rate=0.1):
+        super(TransformerBlock, self).__init__()
+        self.transformer_units = transformer_units
+        self.num_heads         = num_heads
+        self.projection_dim    = projection_dim
+        self.dropout_rate      = dropout_rate
+        
+    def build(self, input_shape):
+        self.norm1         = tf.keras.layers.LayerNormalization(epsilon=1e-6)
+        self.norm2         = tf.keras.layers.LayerNormalization(epsilon=1e-6)
+        self.norm3         = tf.keras.layers.LayerNormalization(epsilon=1e-6)
+        self.norm4         = tf.keras.layers.LayerNormalization(epsilon=1e-6)
+        self.mhat          = tf.keras.layers.MultiHeadAttention(num_heads=self.num_heads, key_dim=self.projection_dim//self.num_heads, dropout=self.dropout_rate)
+        self.add1          = tf.keras.layers.Add()
+        self.add2          = tf.keras.layers.Add()
+        
+    
+    def call(self, query, key, value):
+        x1v = self.norm1(value)
+        x1k = self.norm2(key)
+        x1q = self.norm3(query)
+        # Create a multi-head attention layer.
+        attention_output, attention_scores = self.mhat(x1q, x1v, x1k)
+        # Skip connection 1.
+        x2 = self.add1([attention_output, value])
+        # Layer normalization 2.
+        x3 = self.norm4(x2)
+        # MLP.
+        x3 = mlp(x3, hidden_units=self.transformer_units, dropout_rate=self.dropout_rate)
+        # Skip connection 2.
+        out = self.add2([x3, x2])
+        
+        return out
+       
+
+class SketchFormer(object):
+    def __init__(self, hps):
+        self.hps                     = hps
+        self.models                  = {}
+        self.models["encoder"]       = self._build_encoder()
+        self.models["initial_state"] = self._build_initial_state()
+        self.models["decoder"]       = self._build_decoder()
+        self.models["full"]          = self._build_model()
+
+    def _build_encoder(self):
+        hps = self.hps
+        encoder_input = K.layers.Input(
+            shape=(hps["max_seq_len"], 5), name="encoder_input"
+        )
+
+        encoder_lstm_cell = K.layers.LSTM(
+            units=hps["enc_rnn_size"], recurrent_dropout=hps["recurrent_dropout_prob"]
+        )
+        encoder_output = K.layers.Bidirectional(
+            encoder_lstm_cell, merge_mode="concat", name="h"
+        )(encoder_input)
+
+        def reparameterize(z_params):
+            mu, sigma = z_params
+            sigma_exp = K.backend.exp(sigma / 2.0)
+            return mu + sigma_exp * K.backend.random_normal(
+                shape=K.backend.shape(sigma), mean=0.0, stddev=1.0
+            )
+
+        mu = K.layers.Dense(
+            units=hps["z_size"],
+            kernel_initializer=K.initializers.RandomNormal(stddev=0.001),
+            name="mu",
+        )(encoder_output)
+        sigma = K.layers.Dense(
+            units=hps["z_size"],
+            kernel_initializer=K.initializers.RandomNormal(stddev=0.001),
+            name="sigma",
+        )(encoder_output)
+
+        latent_z = K.layers.Lambda(reparameterize, name="z")([mu, sigma])
+
+        return K.Model(
+            inputs=encoder_input, outputs=[latent_z, mu, sigma], name="encoder"
+        )
+
+    def _build_initial_state(self):
+        hps = self.hps
+        z_input = K.layers.Input(shape=(hps["z_size"],), name="z_input")
+
+        initial_state = K.layers.Dense(
+            units=hps["dec_rnn_size"] * 2,
+            activation="tanh",
+            name="dec_initial_state",
+            kernel_initializer=K.initializers.RandomNormal(mean=0.0, stddev=0.001),
+        )(z_input)
+        states = tf.split(initial_state, 2, 1)
+
+        return K.Model(inputs=z_input, outputs=states, name="initial_state")
+
+    def _build_decoder(self):
+        hps = self.hps
+        decoder_input = K.layers.Input(shape=(None, 5), name="decoder_input")
+        z_input = K.layers.Input(shape=(hps["z_size"],), name="z_input")
+        initial_h_input = K.layers.Input(shape=(hps["dec_rnn_size"],), name="init_h")
+        initial_c_input = K.layers.Input(shape=(hps["dec_rnn_size"],), name="init_c")
+
+        decoder_lstm = K.layers.LSTM(
+            units=hps["dec_rnn_size"],
+            recurrent_dropout=hps["recurrent_dropout_prob"],
+            name="decoder",
+            return_sequences=True,
+            return_state=True,
+        )
+
+        tile_z = tf.tile(tf.expand_dims(z_input, 1), [1, tf.shape(decoder_input)[1], 1])
+        decoder_full_input = tf.concat([decoder_input, tile_z], -1)
+
+        decoder_output, cell_h, cell_c = decoder_lstm(
+            decoder_full_input, initial_state=[initial_h_input, initial_c_input]
+        )
+
+        output_layer = K.layers.Dense(units=hps["num_mixture"] * 6 + 3, name="output")
+        output = output_layer(decoder_output)
+
+        return K.Model(
+            inputs=[decoder_input, z_input, initial_h_input, initial_c_input],
+            outputs=[output, cell_h, cell_c],
+            name="decoder",
+        )
+
+    def _build_model(self):
+        hps = self.hps
+        encoder_input = K.layers.Input(
+            shape=(hps["max_seq_len"], 5), name="encoder_input"
+        )
+        decoder_input = K.layers.Input(shape=(None, 5), name="decoder_input")
+
+        z_out, mu_out, sigma_out = self.models["encoder"](encoder_input)
+        init_h, init_c = self.models["initial_state"](z_out)
+
+        output, _, _ = self.models["decoder"]([decoder_input, z_out, init_h, init_c])
+
+        return K.Model(
+            inputs=[encoder_input, decoder_input],
+            outputs=[output, mu_out, sigma_out],
+            name="sketchrnn",
+        )
+
+    def load_weights(self, path):
+        self.models["full"].load_weights(path)
+        print("Loaded Weights From: {}".format(path))
+
+    def sample(self, temperature=1.0, greedy=False, z=None):
+        seq_len = self.hps["max_seq_len"]
+        if z is None:
+            z = np.random.randn(1, self.hps["z_size"]).astype("float32")
+
+        prev_x = np.array([0, 0, 1, 0, 0], dtype=np.float32)
+        cell_h, cell_c = self.models["initial_state"](z)
+
+        strokes = np.zeros((seq_len, 5), dtype=np.float32)
+
+        for i in range(seq_len):
+            outouts, cell_h, cell_c = self.models["decoder"](
+                [prev_x.reshape((1, 1, 5)), z, cell_h, cell_c]
+            )
+
+            o_pi, o_mu1, o_mu2, o_sigma1, o_sigma2, o_corr, o_pen = get_mixture_coef(
+                outouts
+            )
+
+            idx = get_pi_idx(o_pi[0, 0], temperature, greedy)
+            idx_eos = get_pi_idx(o_pen[0, 0], temperature, greedy)
+
+            next_x1, next_x2 = sample_gaussian_2d(
+                o_mu1[0, 0, idx],
+                o_mu2[0, 0, idx],
+                o_sigma1[0, 0, idx],
+                o_sigma2[0, 0, idx],
+                o_corr[0, 0, idx],
+                np.sqrt(temperature),
+                greedy,
+            )
+
+            strokes[i] = [next_x1, next_x2, 0, 0, 0]
+            strokes[i, idx_eos + 2] = 1
+
+            prev_x = strokes[i]
+
+        return strokes
+
+    def train(
+        self, initial_epoch, train_dataset, val_dataset, checkpoint, log_every=100
+    ):
+        hps = self.hps
+        model = self.models["full"]
+        optimizer = K.optimizers.Adam(
+            learning_rate=hps["learning_rate"], clipvalue=hps["grad_clip"]
+        )
+        metrics = {
+            n: K.metrics.Mean(n, dtype=tf.float32) for n in ["recon", "kl", "cost"]
+        }
+
+        kl_weight = K.backend.variable(hps["kl_weight_start"], name="kl_weight")
+
+        step = initial_epoch * hps["num_batches"]
+
+        @tf.function
+        def train_step(inputs, target):
+            with tf.GradientTape() as tape:
+                outputs, mu, sigma = model(inputs)
+                md_loss = K.backend.mean(calculate_md_loss(target, outputs))
+                kl_loss = calculate_kl_loss(mu, sigma, hps["kl_tolerance"])
+                total_loss = md_loss + kl_loss * kl_weight
+
+            grads = tape.gradient(total_loss, model.trainable_variables)
+            optimizer.apply_gradients(zip(grads, model.trainable_variables))
+            return md_loss, kl_loss, total_loss
+
+        for epoch in range(initial_epoch + 1, hps["epochs"] + 1):
+            start = time.time()
+
+            K.backend.set_learning_phase(1)
+            for batch, (inputs, target) in enumerate(train_dataset, 1):
+                step += 1
+
+                ## Update learning rate
+                lr = (hps["learning_rate"] - hps["min_learning_rate"]) * hps[
+                    "decay_rate"
+                ] ** step + hps["min_learning_rate"]
+                K.backend.set_value(optimizer.lr, K.backend.get_value(lr))
+
+                ## update kl weight
+                klw = (
+                    hps["kl_weight"]
+                    - (hps["kl_weight"] - hps["kl_weight_start"])
+                    * hps["kl_decay_rate"] ** step
+                )
+                K.backend.set_value(kl_weight, K.backend.get_value(klw))
+
+                md_loss, kl_loss, total_loss = train_step(inputs, target)
+
+                if batch % log_every == 0:
+                    msg = (
+                        "[train] epoch: {}/{}, batch: {}, recon: {:.4f}, "
+                        "kl: {:.4f}, cost: {:.4f}, lr: {:.6f}, klw: {:.4f}, time: {:.2f}"
+                    )
+                    print(
+                        msg.format(
+                            epoch,
+                            hps["epochs"],
+                            batch,
+                            md_loss.numpy(),
+                            kl_loss.numpy(),
+                            total_loss.numpy(),
+                            optimizer.learning_rate.numpy(),
+                            kl_weight.numpy(),
+                            time.time() - start,
+                        )
+                    )
+                    start = time.time()
+
+            K.backend.set_learning_phase(0)
+            for inputs, target in val_dataset:
+                outputs, mu, sigma = model(inputs)
+                md_loss = K.backend.mean(calculate_md_loss(target, outputs))
+                kl_loss = calculate_kl_loss(mu, sigma, hps["kl_tolerance"])
+                total_loss = md_loss + kl_loss * kl_weight
+
+                metrics["recon"](md_loss)
+                metrics["kl"](kl_loss)
+                metrics["cost"](total_loss)
+
+            print(
+                "[validate] epoch: {}/{}, recon: {:.4f}, kl: {:.4f}, cost: {:.4f}".format(
+                    epoch,
+                    hps["epochs"],
+                    metrics["recon"].result(),
+                    metrics["kl"].result(),
+                    metrics["cost"].result(),
+                )
+            )
+
+            model.save_weights(checkpoint.format(epoch, metrics["cost"].result()))
+
+            for metric in metrics.values():
+                metric.reset_states()
+
+
 def get_mixture_coef(out_tensor):
     z_pen_logits = out_tensor[:, :, :3]
     z_pi, z_mu1, z_mu2, z_sigma1, z_sigma2, z_corr = tf.split(
