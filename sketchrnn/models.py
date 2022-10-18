@@ -180,6 +180,7 @@ class SketchRNN(tf.keras.Model):
             x, y = data
         
         with tf.GradientTape() as tape:
+                tape.watch(x)
                 lr, kl_weight = self.get_updates(self)
                 self.optimizer.lr.assign(tf.cast(lr, tf.float32))
                 outputs, mu, sigma = self.model(x, training=True)
