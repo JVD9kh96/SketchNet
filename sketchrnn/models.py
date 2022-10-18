@@ -174,10 +174,10 @@ class SketchRNN(tf.keras.Model):
     
     def train_step(self, data):
         if len(data) == 3:
-            x, y, sample_weight = data
+            x, y, sample_weight = data[0], data[1], data[2]
         else:
             sample_weight = None
-            x, y = data
+            x, y = data[0], data[1]
         print('holaaa')
         with tf.GradientTape() as tape:
                 tape.watch(x)
@@ -199,10 +199,10 @@ class SketchRNN(tf.keras.Model):
         
     def test_step(self, data):
         if len(data) == 3:
-            x, y, sample_weight = data
+            x, y, sample_weight = data[0], data[1], data[2]
         else:
             sample_weight = None
-            x, y = data
+            x, y = data[0], data[1]
          
         outputs, mu, sigma = self(x, training=False)
         md_loss = K.backend.mean(calculate_md_loss(y, outputs))
