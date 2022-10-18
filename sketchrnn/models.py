@@ -189,7 +189,7 @@ class SketchRNN(tf.keras.Model):
                 total_loss = md_loss + kl_loss * kl_weight
 
         grads = tape.gradient(total_loss, self.model.trainable_variables)
-        print(grads)
+        print('hey', grads, len(grads))
         self.optimizer.apply_gradients(zip(grads, self.model.trainable_variables))
             
 #             self.compiled_metrics.update_state(y, y_pred, sample_weight=sample_weight)
