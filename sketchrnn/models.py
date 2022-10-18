@@ -4,7 +4,7 @@ import tensorflow as tf
 from tensorflow import keras as K
 
 
-class SketchRNN(object):
+class SketchRNN(tf.keras.Model):
     def __init__(self, hps):
         self.hps = hps
         self.models = {}
@@ -155,7 +155,62 @@ class SketchRNN(object):
             prev_x = strokes[i]
 
         return strokes
+    
+    def get_updates(self):
+        ## Update learning rate
+        step = self.optimizer.iterations
+        lr = (self.hps["learning_rate"] - self.hps["min_learning_rate"]) * self.hps[
+            "decay_rate"
+        ] ** step + self.hps["min_learning_rate"]
+        ## update kl weight
+        klw = (
+            self.hps["kl_weight"]
+            - (self.hps["kl_weight"] - self.hps["kl_weight_start"])
+            * self.hps["kl_decay_rate"] ** step
+        )
+        return lr, klw
+        
+    
+    def train_step(self, data):
+        if len(data) == 3:
+            x, y, sample_weight = data
+        else:
+            sample_weight = None
+            x, y = data
+        
+        with tf.GradientTape() as tape:
+                lr, kl_weight = self.get_updates(self)
+                self.optimizer.lr.assign(tf.cast(lr, tf.float32))
+                outputs, mu, sigma = self.model(x, training=True)
+                md_loss = K.backend.mean(calculate_md_loss(y, outputs))
+                kl_loss = calculate_kl_loss(mu, sigma, self.hps["kl_tolerance"])
+                total_loss = md_loss + kl_loss * kl_weight
 
+        grads = tape.gradient(total_loss, self.model.trainable_variables)
+            self.optimizer.apply_gradients(zip(grads, self.model.trainable_variables))
+            
+#             self.compiled_metrics.update_state(y, y_pred, sample_weight=sample_weight)
+            
+#             return {'md_loss': md_loss, 'kl_loss':kl_loss}|{m.name: m.result() for m in self.metrics}
+        return {'recon_loss': md_loss, 'kl_loss':kl_loss, 'total_loss':total_loss}
+        
+    def test_step(self, data):
+        if len(data) == 3:
+            x, y, sample_weight = data
+        else:
+            sample_weight = None
+            x, y = data
+         
+        outputs, mu, sigma = model(x, training=False)
+        md_loss = K.backend.mean(calculate_md_loss(y, outputs))
+        kl_loss = calculate_kl_loss(mu, sigma, self.hps["kl_tolerance"])
+        total_loss = md_loss + kl_loss * kl_weight
+
+#         self.compiled_metrics.update_state(y, y_pred, sample_weight=sample_weight)
+
+#         return {'md_loss': md_loss, 'kl_loss':kl_loss}|{m.name: m.result() for m in self.metrics}
+        return {'recon_loss': md_loss, 'kl_loss':kl_loss, 'total_loss':total_loss}
+        
     def train(
         self, initial_epoch, train_dataset, val_dataset, checkpoint, log_every=100
     ):
