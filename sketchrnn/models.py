@@ -6,6 +6,7 @@ from tensorflow import keras as K
 
 class SketchRNN(tf.keras.Model):
     def __init__(self, hps):
+        super(SketchRNN, self).__init__()
         self.hps = hps
         self.models = {}
         self.models["encoder"] = self._build_encoder()
