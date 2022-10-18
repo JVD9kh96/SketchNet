@@ -178,10 +178,10 @@ class SketchRNN(tf.keras.Model):
         else:
             sample_weight = None
             x, y = data
-        
+        print('holaaa')
         with tf.GradientTape() as tape:
                 tape.watch(x)
-                lr, kl_weight = self.get_updates(self)
+                lr, kl_weight = self.get_updates()
                 self.optimizer.lr.assign(tf.cast(lr, tf.float32))
                 outputs, mu, sigma = self(x, training=True)
                 md_loss = K.backend.mean(calculate_md_loss(y, outputs))
@@ -204,7 +204,7 @@ class SketchRNN(tf.keras.Model):
             sample_weight = None
             x, y = data
          
-        outputs, mu, sigma = model(x, training=False)
+        outputs, mu, sigma = self(x, training=False)
         md_loss = K.backend.mean(calculate_md_loss(y, outputs))
         kl_loss = calculate_kl_loss(mu, sigma, self.hps["kl_tolerance"])
         total_loss = md_loss + kl_loss * kl_weight
