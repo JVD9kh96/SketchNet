@@ -183,12 +183,13 @@ class SketchRNN(tf.keras.Model):
                 tape.watch(x)
                 lr, kl_weight = self.get_updates(self)
                 self.optimizer.lr.assign(tf.cast(lr, tf.float32))
-                outputs, mu, sigma = self.model(x, training=True)
+                outputs, mu, sigma = self(x, training=True)
                 md_loss = K.backend.mean(calculate_md_loss(y, outputs))
                 kl_loss = calculate_kl_loss(mu, sigma, self.hps["kl_tolerance"])
                 total_loss = md_loss + kl_loss * kl_weight
 
         grads = tape.gradient(total_loss, self.model.trainable_variables)
+        print(grads)
         self.optimizer.apply_gradients(zip(grads, self.model.trainable_variables))
             
 #             self.compiled_metrics.update_state(y, y_pred, sample_weight=sample_weight)
