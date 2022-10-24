@@ -214,102 +214,102 @@ class SketchRNN(tf.keras.Model):
 #         return {'md_loss': md_loss, 'kl_loss':kl_loss}|{m.name: m.result() for m in self.metrics}
         return {'recon_loss': md_loss, 'kl_loss':kl_loss, 'total_loss':total_loss}
         
-    def train(
-        self, initial_epoch, train_dataset, val_dataset, checkpoint, log_every=100
-    ):
-        hps = self.hps
-        model = self.models["full"]
-        optimizer = K.optimizers.Adam(
-            learning_rate=hps["learning_rate"], clipvalue=hps["grad_clip"]
-        )
-        metrics = {
-            n: K.metrics.Mean(n, dtype=tf.float32) for n in ["recon", "kl", "cost"]
-        }
+#     def train(
+#         self, initial_epoch, train_dataset, val_dataset, checkpoint, log_every=100
+#     ):
+#         hps = self.hps
+#         model = self.models["full"]
+#         optimizer = K.optimizers.Adam(
+#             learning_rate=hps["learning_rate"], clipvalue=hps["grad_clip"]
+#         )
+#         metrics = {
+#             n: K.metrics.Mean(n, dtype=tf.float32) for n in ["recon", "kl", "cost"]
+#         }
 
-        kl_weight = K.backend.variable(hps["kl_weight_start"], name="kl_weight")
+#         kl_weight = K.backend.variable(hps["kl_weight_start"], name="kl_weight")
 
-        step = initial_epoch * hps["num_batches"]
+#         step = initial_epoch * hps["num_batches"]
 
-        @tf.function
-        def train_step(inputs, target):
-            with tf.GradientTape() as tape:
-                outputs, mu, sigma = model(inputs)
-                md_loss = K.backend.mean(calculate_md_loss(target, outputs))
-                kl_loss = calculate_kl_loss(mu, sigma, hps["kl_tolerance"])
-                total_loss = md_loss + kl_loss * kl_weight
+#         @tf.function
+#         def train_step(inputs, target):
+#             with tf.GradientTape() as tape:
+#                 outputs, mu, sigma = model(inputs)
+#                 md_loss = K.backend.mean(calculate_md_loss(target, outputs))
+#                 kl_loss = calculate_kl_loss(mu, sigma, hps["kl_tolerance"])
+#                 total_loss = md_loss + kl_loss * kl_weight
 
-            grads = tape.gradient(total_loss, model.trainable_variables)
-            optimizer.apply_gradients(zip(grads, model.trainable_variables))
-            return md_loss, kl_loss, total_loss
+#             grads = tape.gradient(total_loss, model.trainable_variables)
+#             optimizer.apply_gradients(zip(grads, model.trainable_variables))
+#             return md_loss, kl_loss, total_loss
 
-        for epoch in range(initial_epoch + 1, hps["epochs"] + 1):
-            start = time.time()
+#         for epoch in range(initial_epoch + 1, hps["epochs"] + 1):
+#             start = time.time()
 
-            K.backend.set_learning_phase(1)
-            for batch, (inputs, target) in enumerate(train_dataset, 1):
-                step += 1
+#             K.backend.set_learning_phase(1)
+#             for batch, (inputs, target) in enumerate(train_dataset, 1):
+#                 step += 1
 
-                ## Update learning rate
-                lr = (hps["learning_rate"] - hps["min_learning_rate"]) * hps[
-                    "decay_rate"
-                ] ** step + hps["min_learning_rate"]
-                K.backend.set_value(optimizer.lr, K.backend.get_value(lr))
+#                 ## Update learning rate
+#                 lr = (hps["learning_rate"] - hps["min_learning_rate"]) * hps[
+#                     "decay_rate"
+#                 ] ** step + hps["min_learning_rate"]
+#                 K.backend.set_value(optimizer.lr, K.backend.get_value(lr))
 
-                ## update kl weight
-                klw = (
-                    hps["kl_weight"]
-                    - (hps["kl_weight"] - hps["kl_weight_start"])
-                    * hps["kl_decay_rate"] ** step
-                )
-                K.backend.set_value(kl_weight, K.backend.get_value(klw))
+#                 ## update kl weight
+#                 klw = (
+#                     hps["kl_weight"]
+#                     - (hps["kl_weight"] - hps["kl_weight_start"])
+#                     * hps["kl_decay_rate"] ** step
+#                 )
+#                 K.backend.set_value(kl_weight, K.backend.get_value(klw))
 
-                md_loss, kl_loss, total_loss = train_step(inputs, target)
+#                 md_loss, kl_loss, total_loss = train_step(inputs, target)
 
-                if batch % log_every == 0:
-                    msg = (
-                        "[train] epoch: {}/{}, batch: {}, recon: {:.4f}, "
-                        "kl: {:.4f}, cost: {:.4f}, lr: {:.6f}, klw: {:.4f}, time: {:.2f}"
-                    )
-                    print(
-                        msg.format(
-                            epoch,
-                            hps["epochs"],
-                            batch,
-                            md_loss.numpy(),
-                            kl_loss.numpy(),
-                            total_loss.numpy(),
-                            optimizer.learning_rate.numpy(),
-                            kl_weight.numpy(),
-                            time.time() - start,
-                        )
-                    )
-                    start = time.time()
+#                 if batch % log_every == 0:
+#                     msg = (
+#                         "[train] epoch: {}/{}, batch: {}, recon: {:.4f}, "
+#                         "kl: {:.4f}, cost: {:.4f}, lr: {:.6f}, klw: {:.4f}, time: {:.2f}"
+#                     )
+#                     print(
+#                         msg.format(
+#                             epoch,
+#                             hps["epochs"],
+#                             batch,
+#                             md_loss.numpy(),
+#                             kl_loss.numpy(),
+#                             total_loss.numpy(),
+#                             optimizer.learning_rate.numpy(),
+#                             kl_weight.numpy(),
+#                             time.time() - start,
+#                         )
+#                     )
+#                     start = time.time()
 
-            K.backend.set_learning_phase(0)
-            for inputs, target in val_dataset:
-                outputs, mu, sigma = model(inputs)
-                md_loss = K.backend.mean(calculate_md_loss(target, outputs))
-                kl_loss = calculate_kl_loss(mu, sigma, hps["kl_tolerance"])
-                total_loss = md_loss + kl_loss * kl_weight
+#             K.backend.set_learning_phase(0)
+#             for inputs, target in val_dataset:
+#                 outputs, mu, sigma = model(inputs)
+#                 md_loss = K.backend.mean(calculate_md_loss(target, outputs))
+#                 kl_loss = calculate_kl_loss(mu, sigma, hps["kl_tolerance"])
+#                 total_loss = md_loss + kl_loss * kl_weight
 
-                metrics["recon"](md_loss)
-                metrics["kl"](kl_loss)
-                metrics["cost"](total_loss)
+#                 metrics["recon"](md_loss)
+#                 metrics["kl"](kl_loss)
+#                 metrics["cost"](total_loss)
 
-            print(
-                "[validate] epoch: {}/{}, recon: {:.4f}, kl: {:.4f}, cost: {:.4f}".format(
-                    epoch,
-                    hps["epochs"],
-                    metrics["recon"].result(),
-                    metrics["kl"].result(),
-                    metrics["cost"].result(),
-                )
-            )
+#             print(
+#                 "[validate] epoch: {}/{}, recon: {:.4f}, kl: {:.4f}, cost: {:.4f}".format(
+#                     epoch,
+#                     hps["epochs"],
+#                     metrics["recon"].result(),
+#                     metrics["kl"].result(),
+#                     metrics["cost"].result(),
+#                 )
+#             )
 
-            model.save_weights(checkpoint.format(epoch, metrics["cost"].result()))
+#             model.save_weights(checkpoint.format(epoch, metrics["cost"].result()))
 
-            for metric in metrics.values():
-                metric.reset_states()
+#             for metric in metrics.values():
+#                 metric.reset_states()
 
 
 def mlp(x, hidden_units, dropout_rate):
