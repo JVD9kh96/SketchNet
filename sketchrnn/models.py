@@ -373,7 +373,10 @@ class TransformerBlock(tf.keras.layers.Layer):
         self.norm2         = tf.keras.layers.LayerNormalization(epsilon=1e-6)
 #         self.norm3         = tf.keras.layers.LayerNormalization(epsilon=1e-6)
 #         self.norm4         = tf.keras.layers.LayerNormalization(epsilon=1e-6)
-        self.mhat          = tf.keras.layers.MultiHeadAttention(num_heads=self.num_heads, key_dim=self.projection_dim//self.num_heads, dropout=self.dropout_rate)
+        self.mhat          = tf.keras.layers.MultiHeadAttention(num_heads=self.num_heads,
+                                                                key_dim=self.projection_dim//self.num_heads, 
+                                                                dropout=self.dropout_rate,
+                                                                attention_axes=-1)
         self.add1          = tf.keras.layers.Add()
         self.add2          = tf.keras.layers.Add()
         
