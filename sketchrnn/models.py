@@ -378,6 +378,8 @@ class TransformerBlock(tf.keras.layers.Layer):
                                                                 dropout=self.dropout_rate)
         self.add1          = tf.keras.layers.Add()
         self.add2          = tf.keras.layers.Add()
+        self.mlp           = [(tf.keras.layers.Dense(units=units, activation=tf.nn.gelu),
+                               tf.keras.layers.Dropout(self.dropout_rate)) for units in self.transformer_units]
         
     
     def call(self, x):
@@ -391,7 +393,10 @@ class TransformerBlock(tf.keras.layers.Layer):
         # Layer normalization 2.
         x3 = self.norm2(x2)
         # MLP.
-        x3 = mlp(x3, hidden_units=self.transformer_units, dropout_rate=self.dropout_rate)
+        for dense, dropout in mlp:
+            x3 = dense(x3)
+            x3 = dropout(x3)
+#         x3 = mlp(x3, hidden_units=self.transformer_units, dropout_rate=self.dropout_rate)
         # Skip connection 2.
         out = self.add2([x3, x2])
         
