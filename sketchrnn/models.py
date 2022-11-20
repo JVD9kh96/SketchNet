@@ -374,9 +374,8 @@ class TransformerBlock(tf.keras.layers.Layer):
 #         self.norm3         = tf.keras.layers.LayerNormalization(epsilon=1e-6)
 #         self.norm4         = tf.keras.layers.LayerNormalization(epsilon=1e-6)
         self.mhat          = tf.keras.layers.MultiHeadAttention(num_heads=self.num_heads,
-                                                                key_dim=self.projection_dim,
-                                                                dropout=self.dropout_rate,
-                                                                attention_axes=1)
+                                                                key_dim=self.projection_dim//self.num_heads,
+                                                                dropout=self.dropout_rate)
         self.add1          = tf.keras.layers.Add()
         self.add2          = tf.keras.layers.Add()
         
@@ -426,7 +425,8 @@ class SketchFormer(object):
 #             encoder_lstm_cell, merge_mode="concat", name="h"
 #         )(encoder_input)
         encoder_transformer = TransformerBlock(hps["transformer_units"], hps["num_heads"], hps["projection_dim"], hps["dropout_rate"])
-        encoder_output      = encoder_transformer(projected)
+        transformer_output  = encoder_transformer(projected)
+        encoder_output      = tf.keras.layers.GlobalAveragePooling1D()(transformer_output)
         def reparameterize(z_params):
             mu, sigma = z_params
             sigma_exp = K.backend.exp(sigma / 2.0)
