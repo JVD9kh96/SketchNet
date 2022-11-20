@@ -409,6 +409,12 @@ class SketchFormer(object):
         encoder_input = K.layers.Input(
             shape=(hps["max_seq_len"], 5), name="encoder_input"
         )
+        
+        projected = K.layers.Dense(
+            units=hps["transformer_units"][0],
+            kernel_initializer=K.initializers.RandomNormal(stddev=0.001),
+            name="enc_projection_layer",
+        )(encoder_input)
 
 #         encoder_lstm_cell = K.layers.LSTM(
 #             units=hps["enc_rnn_size"], recurrent_dropout=hps["recurrent_dropout_prob"]
@@ -417,7 +423,7 @@ class SketchFormer(object):
 #             encoder_lstm_cell, merge_mode="concat", name="h"
 #         )(encoder_input)
         encoder_transformer = TransformerBlock(hps["transformer_units"], hps["num_heads"], hps["projection_dim"], hps["dropout_rate"])
-        encoder_output      = encoder_transformer(encoder_input)
+        encoder_output      = encoder_transformer(projected)
         def reparameterize(z_params):
             mu, sigma = z_params
             sigma_exp = K.backend.exp(sigma / 2.0)
