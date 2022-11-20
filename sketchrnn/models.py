@@ -393,7 +393,7 @@ class TransformerBlock(tf.keras.layers.Layer):
         # Layer normalization 2.
         x3 = self.norm2(x2)
         # MLP.
-        for dense, dropout in mlp:
+        for dense, dropout in self.mlp:
             x3 = dense(x3)
             x3 = dropout(x3)
 #         x3 = mlp(x3, hidden_units=self.transformer_units, dropout_rate=self.dropout_rate)
