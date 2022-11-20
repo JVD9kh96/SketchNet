@@ -385,7 +385,7 @@ class TransformerBlock(tf.keras.layers.Layer):
         # Create a multi-head attention layer.
         attention_output = self.mhat(x1, x1, x1)
         # Skip connection 1.
-        x2 = self.add1([attention_output, x11])
+        x2 = self.add1([attention_output, x1])
         # Layer normalization 2.
         x3 = self.norm2(x2)
         # MLP.
