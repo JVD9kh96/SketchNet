@@ -576,7 +576,7 @@ class SketchFormer(object):
         output = output_layer(decoder_output)
 
         return K.Model(
-            inputs=[decoder_input, z_input],
+            inputs=[decoder_input, z_input, initial_h_input, initial_c_input],
             outputs=[output],
             name="decoder",
         )
