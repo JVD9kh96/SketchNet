@@ -421,12 +421,16 @@ class DecTransformerBlock(tf.keras.layers.Layer):
                                                                 dropout=self.dropout_rate)
         self.add1          = tf.keras.layers.Add()
         self.add2          = tf.keras.layers.Add()
-        self.mlp           = [(tf.keras.layers.Dense(units=units, activation=tf.nn.gelu),
+        self.mlp_q         = [(tf.keras.layers.Dense(units=units, activation=tf.nn.gelu),
                                tf.keras.layers.Dropout(self.dropout_rate)) for units in self.transformer_units]
         
-    
-    def call(self, q, k, v):
-        x1q   = self.norm1(q)
+        self.mlp_k         = [(tf.keras.layers.Dense(units=units, activation=tf.nn.gelu),
+                               tf.keras.layers.Dropout(self.dropout_rate)) for units in self.transformer_units]
+        
+        self.mlp_v         = [(tf.keras.layers.Dense(units=units, activation=tf.nn.gelu),
+                               tf.keras.layers.Dropout(self.dropout_rate)) for units in self.transformer_units]
+    def call(self, v, q, k):
+        x1q = self.norm1(q)
         x1k = self.norm2(k)
         x1v = self.norm3(v)
         # Create a multi-head attention layer.
@@ -436,14 +440,22 @@ class DecTransformerBlock(tf.keras.layers.Layer):
         # Layer normalization 2.
         x3 = self.norm2(x2)
         # MLP.
-        for dense, dropout in self.mlp:
+        for dense, dropout in self.mlp_v:
             x3 = dense(x3)
             x3 = dropout(x3)
+            
+        for dense, dropout in self.mlp_q:
+            x2q = dense(x2q)
+            x2q = dropout(x2q)
+            
+        for dense, dropout in self.mlp_k:
+            x2k = dense(x2k)
+            x2k = dropout(x2v)
 #         x3 = mlp(x3, hidden_units=self.transformer_units, dropout_rate=self.dropout_rate)
         # Skip connection 2.
         out = self.add2([x3, x2])
         
-        return out
+        return [out, x2q, x2k]
 
 class SketchFormer(object):
     def __init__(self, hps):
@@ -517,8 +529,8 @@ class SketchFormer(object):
         hps = self.hps
         decoder_input = K.layers.Input(shape=(None, 5), name="decoder_input")
         z_input = K.layers.Input(shape=(hps["z_size"],), name="z_input")
-#         initial_h_input = K.layers.Input(shape=(hps["dec_rnn_size"],), name="init_h")
-#         initial_c_input = K.layers.Input(shape=(hps["dec_rnn_size"],), name="init_c")
+        initial_h_input = K.layers.Input(shape=(hps["dec_rnn_size"],), name="init_h")
+        initial_c_input = K.layers.Input(shape=(hps["dec_rnn_size"],), name="init_c")
 
 #         decoder_lstm = K.layers.LSTM(
 #             units=hps["dec_rnn_size"],
@@ -538,14 +550,26 @@ class SketchFormer(object):
 #             decoder_full_input, initial_state=[initial_h_input, initial_c_input]
 #         )
 
-        projected = K.layers.Dense(
+        projected_v = K.layers.Dense(
             units=hps["transformer_units"][0],
             kernel_initializer=K.initializers.RandomNormal(stddev=0.001),
-            name="dec_projection_layer",
+            name="dec_projection_layer_v",
         )(decoder_input)
+    
+        projected_k = K.layers.Dense(
+            units=hps["transformer_units"][0],
+            kernel_initializer=K.initializers.RandomNormal(stddev=0.001),
+            name="dec_projection_layer_v",
+        )(initial_h_input)
+        
+        projected_q = K.layers.Dense(
+            units=hps["transformer_units"][0],
+            kernel_initializer=K.initializers.RandomNormal(stddev=0.001),
+            name="dec_projection_layer_v",
+        )(initial_c_input)
 
-        encoder_transformer = TransformerBlock(hps["transformer_units"], hps["num_heads"], hps["projection_dim"], hps["dropout_rate"])
-        transformer_output  = encoder_transformer(projected)
+        encoder_transformer = DecTransformerBlock(hps["transformer_units"], hps["num_heads"], hps["projection_dim"], hps["dropout_rate"])
+        transformer_output  = encoder_transformer(projected_v, projected_q, projected_k)
         decoder_output      = tf.keras.layers.GlobalAveragePooling1D()(transformer_output)
         
         output_layer = K.layers.Dense(units=hps["num_mixture"] * 6 + 3, name="output")
