@@ -402,6 +402,49 @@ class TransformerBlock(tf.keras.layers.Layer):
         
         return out
 
+    
+class DecTransformerBlock(tf.keras.layers.Layer):
+    def __init__(self, transformer_units, num_heads, projection_dim, dropout_rate=0.1):
+        super(DecTransformerBlock, self).__init__()
+        self.transformer_units = transformer_units
+        self.num_heads         = num_heads
+        self.projection_dim    = projection_dim
+        self.dropout_rate      = dropout_rate
+        
+    def build(self, input_shape):
+        self.norm1         = tf.keras.layers.LayerNormalization(epsilon=1e-6)
+        self.norm2         = tf.keras.layers.LayerNormalization(epsilon=1e-6)
+        self.norm3         = tf.keras.layers.LayerNormalization(epsilon=1e-6)
+        self.norm4         = tf.keras.layers.LayerNormalization(epsilon=1e-6)
+        self.mhat          = tf.keras.layers.MultiHeadAttention(num_heads=self.num_heads,
+                                                                key_dim=self.projection_dim//self.num_heads,
+                                                                dropout=self.dropout_rate)
+        self.add1          = tf.keras.layers.Add()
+        self.add2          = tf.keras.layers.Add()
+        self.mlp           = [(tf.keras.layers.Dense(units=units, activation=tf.nn.gelu),
+                               tf.keras.layers.Dropout(self.dropout_rate)) for units in self.transformer_units]
+        
+    
+    def call(self, q, k, v):
+        x1q   = self.norm1(q)
+        x1k = self.norm2(k)
+        x1v = self.norm3(v)
+        # Create a multi-head attention layer.
+        attention_output = self.mhat(x1q, x1k, x1v)
+        # Skip connection 1.
+        x2 = self.add1([attention_output, x1])
+        # Layer normalization 2.
+        x3 = self.norm2(x2)
+        # MLP.
+        for dense, dropout in self.mlp:
+            x3 = dense(x3)
+            x3 = dropout(x3)
+#         x3 = mlp(x3, hidden_units=self.transformer_units, dropout_rate=self.dropout_rate)
+        # Skip connection 2.
+        out = self.add2([x3, x2])
+        
+        return out
+
 class SketchFormer(object):
     def __init__(self, hps):
         self.hps = hps
@@ -474,16 +517,16 @@ class SketchFormer(object):
         hps = self.hps
         decoder_input = K.layers.Input(shape=(None, 5), name="decoder_input")
         z_input = K.layers.Input(shape=(hps["z_size"],), name="z_input")
-        initial_h_input = K.layers.Input(shape=(hps["dec_rnn_size"],), name="init_h")
-        initial_c_input = K.layers.Input(shape=(hps["dec_rnn_size"],), name="init_c")
+#         initial_h_input = K.layers.Input(shape=(hps["dec_rnn_size"],), name="init_h")
+#         initial_c_input = K.layers.Input(shape=(hps["dec_rnn_size"],), name="init_c")
 
-        decoder_lstm = K.layers.LSTM(
-            units=hps["dec_rnn_size"],
-            recurrent_dropout=hps["recurrent_dropout_prob"],
-            name="decoder",
-            return_sequences=True,
-            return_state=True,
-        )
+#         decoder_lstm = K.layers.LSTM(
+#             units=hps["dec_rnn_size"],
+#             recurrent_dropout=hps["recurrent_dropout_prob"],
+#             name="decoder",
+#             return_sequences=True,
+#             return_state=True,
+#         )
         
 #         decoder_transformer = TransformerBlock(hps["transformer_units"], hps["num_heads"], hps["projection_dim"], hps["dropout_rate"])
 #         decoder_output      = encoder_transformer(encoder_input)
@@ -491,16 +534,26 @@ class SketchFormer(object):
         tile_z = tf.tile(tf.expand_dims(z_input, 1), [1, tf.shape(decoder_input)[1], 1])
         decoder_full_input = tf.concat([decoder_input, tile_z], -1)
 
-        decoder_output, cell_h, cell_c = decoder_lstm(
-            decoder_full_input, initial_state=[initial_h_input, initial_c_input]
-        )
+#         decoder_output, cell_h, cell_c = decoder_lstm(
+#             decoder_full_input, initial_state=[initial_h_input, initial_c_input]
+#         )
 
+        projected = K.layers.Dense(
+            units=hps["transformer_units"][0],
+            kernel_initializer=K.initializers.RandomNormal(stddev=0.001),
+            name="dec_projection_layer",
+        )(decoder_input)
+
+        encoder_transformer = TransformerBlock(hps["transformer_units"], hps["num_heads"], hps["projection_dim"], hps["dropout_rate"])
+        transformer_output  = encoder_transformer(projected)
+        decoder_output      = tf.keras.layers.GlobalAveragePooling1D()(transformer_output)
+        
         output_layer = K.layers.Dense(units=hps["num_mixture"] * 6 + 3, name="output")
         output = output_layer(decoder_output)
 
         return K.Model(
-            inputs=[decoder_input, z_input, initial_h_input, initial_c_input],
-            outputs=[output, cell_h, cell_c],
+            inputs=[decoder_input, z_input],
+            outputs=[output],
             name="decoder",
         )
 
