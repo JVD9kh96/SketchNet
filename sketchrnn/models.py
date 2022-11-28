@@ -429,7 +429,7 @@ class DecTransformerBlock(tf.keras.layers.Layer):
         
         self.mlp_v         = [(tf.keras.layers.Dense(units=units, activation=tf.nn.gelu),
                                tf.keras.layers.Dropout(self.dropout_rate)) for units in self.transformer_units]
-    def call(self, v, q, k):
+    def call(self, v, k, q):
         x1q = self.norm1(q)
         x1k = self.norm2(k)
         x1v = self.norm3(v)
@@ -455,7 +455,7 @@ class DecTransformerBlock(tf.keras.layers.Layer):
         # Skip connection 2.
         out = self.add2([x3, x2])
         
-        return [out, x2q, x2k]
+        return [out, x2k, x2q]
 
 class SketchFormer(object):
     def __init__(self, hps):
@@ -569,7 +569,7 @@ class SketchFormer(object):
         )(initial_c_input)
 
         encoder_transformer = DecTransformerBlock(hps["transformer_units"], hps["num_heads"], hps["projection_dim"], hps["dropout_rate"])
-        transformer_output  = encoder_transformer(projected_v, projected_q, projected_k)
+        transformer_output  = encoder_transformer(projected_v, projected_k, projected_q)
         decoder_output      = tf.keras.layers.GlobalAveragePooling1D()(transformer_output)
         
         output_layer = K.layers.Dense(units=hps["num_mixture"] * 6 + 3, name="output")
