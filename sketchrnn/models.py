@@ -569,7 +569,7 @@ class SketchFormer(object):
         )(initial_c_input)
 
         encoder_transformer = DecTransformerBlock(hps["transformer_units"], hps["num_heads"], hps["projection_dim"], hps["dropout_rate"])
-        transformer_output  = encoder_transformer(projected_v, projected_k, projected_q)
+        transformer_output, cell_k, cell_q  = encoder_transformer(projected_v, projected_k, projected_q)
         decoder_output      = tf.keras.layers.GlobalAveragePooling1D()(transformer_output)
         
         output_layer = K.layers.Dense(units=hps["num_mixture"] * 6 + 3, name="output")
@@ -577,7 +577,7 @@ class SketchFormer(object):
 
         return K.Model(
             inputs=[decoder_input, z_input, initial_h_input, initial_c_input],
-            outputs=[output],
+            outputs=[output, cell_k, cell_q],
             name="decoder",
         )
 
