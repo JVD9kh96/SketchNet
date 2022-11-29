@@ -569,16 +569,12 @@ class SketchFormer(object):
             kernel_initializer=K.initializers.RandomNormal(stddev=0.001),
             name="dec_projection_layer_q",
         )(tile_z)
-        print(projected_k.shape, projected_q.shape)
 
         decoder_transformer = DecTransformerBlock(hps["transformer_units"], hps["num_heads"], hps["projection_dim"], hps["dropout_rate"])
         transformer_output, cell_k, cell_q  = decoder_transformer(projected_v, projected_k, projected_q)
-        print(transformer_output.shape)
-        # decoder_output      = tf.keras.layers.GlobalAveragePooling1D()(transformer_output)
         decoder_output      = transformer_output
         output_layer = K.layers.Dense(units=hps["num_mixture"] * 6 + 3, name="output")
         output = output_layer(decoder_output)
-        print(output.shape)
 
         return K.Model(
             inputs=[decoder_input, z_input, initial_h_input, initial_c_input],
@@ -667,7 +663,6 @@ class SketchFormer(object):
         def train_step(inputs, target):
             with tf.GradientTape() as tape:
                 outputs, mu, sigma = model(inputs)
-                print('aaaa', target.shape, outputs.shape)
                 md_loss = K.backend.mean(calculate_md_loss(target, outputs))
                 kl_loss = calculate_kl_loss(mu, sigma, hps["kl_tolerance"])
                 total_loss = md_loss + kl_loss * kl_weight
@@ -696,7 +691,6 @@ class SketchFormer(object):
                     * hps["kl_decay_rate"] ** step
                 )
                 K.backend.set_value(kl_weight, K.backend.get_value(klw))
-                print(target.shape)
                 md_loss, kl_loss, total_loss = train_step(inputs, target)
 
                 if batch % log_every == 0:
