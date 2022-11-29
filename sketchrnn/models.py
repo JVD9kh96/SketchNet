@@ -445,17 +445,17 @@ class DecTransformerBlock(tf.keras.layers.Layer):
             x3 = dropout(x3)
             
         for dense, dropout in self.mlp_q:
-            x2q = dense(x2q)
-            x2q = dropout(x2q)
+            x1q = dense(x1q)
+            x1q = dropout(x1q)
             
         for dense, dropout in self.mlp_k:
-            x2k = dense(x2k)
-            x2k = dropout(x2v)
+            x1k = dense(x1k)
+            x1k = dropout(x1v)
 #         x3 = mlp(x3, hidden_units=self.transformer_units, dropout_rate=self.dropout_rate)
         # Skip connection 2.
         out = self.add2([x3, x2])
         
-        return [out, x2k, x2q]
+        return [out, x1k, x1q]
 
 class SketchFormer(object):
     def __init__(self, hps):
