@@ -436,7 +436,7 @@ class DecTransformerBlock(tf.keras.layers.Layer):
         # Create a multi-head attention layer.
         attention_output = self.mhat(x1q, x1k, x1v)
         # Skip connection 1.
-        x2 = self.add1([attention_output, x1])
+        x2 = self.add1([attention_output, x1v])
         # Layer normalization 2.
         x3 = self.norm2(x2)
         # MLP.
@@ -569,7 +569,7 @@ class SketchFormer(object):
             kernel_initializer=K.initializers.RandomNormal(stddev=0.001),
             name="dec_projection_layer_v",
         )(tile_z)
-        #print(projected_k.shape, projected_q.shape)
+        print(projected_k.shape, projected_q.shape)
 
         decoder_transformer = DecTransformerBlock(hps["transformer_units"], hps["num_heads"], hps["projection_dim"], hps["dropout_rate"])
         transformer_output, cell_k, cell_q  = decoder_transformer(projected_v, projected_k, projected_q)
