@@ -561,13 +561,13 @@ class SketchFormer(object):
         projected_k = K.layers.Dense(
             units=hps["transformer_units"][0],
             kernel_initializer=K.initializers.RandomNormal(stddev=0.001),
-            name="dec_projection_layer_v",
+            name="dec_projection_layer_k",
         )(tile_h)
         
         projected_q = K.layers.Dense(
             units=hps["transformer_units"][0],
             kernel_initializer=K.initializers.RandomNormal(stddev=0.001),
-            name="dec_projection_layer_v",
+            name="dec_projection_layer_q",
         )(tile_z)
         print(projected_k.shape, projected_q.shape)
 
