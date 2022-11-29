@@ -666,6 +666,7 @@ class SketchFormer(object):
         def train_step(inputs, target):
             with tf.GradientTape() as tape:
                 outputs, mu, sigma = model(inputs)
+                print('aaaa', target.shape, outputs.shape)
                 md_loss = K.backend.mean(calculate_md_loss(target, outputs))
                 kl_loss = calculate_kl_loss(mu, sigma, hps["kl_tolerance"])
                 total_loss = md_loss + kl_loss * kl_weight
